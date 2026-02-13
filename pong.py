@@ -171,9 +171,9 @@ class Game:
         
         # Score detection
         if self.ball.x < 0:
-            self._score_point(ai_wins=False)
+            self._score_point(ai_wins=True)  # Ball passed player (left side), AI scores
         elif self.ball.x > SCREEN_WIDTH:
-            self._score_point(ai_wins=True)
+            self._score_point(ai_wins=False)  # Ball passed AI (right side), player scores
     
     def _handle_paddle_hit(self, paddle: Paddle) -> None:
         """Handle ball hitting a paddle with physics."""

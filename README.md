@@ -22,17 +22,27 @@ A classic Pong implementation with player vs computer gameplay, scoring, and pro
 git clone https://github.com/mariano-klause/Pong.git
 cd Pong
 
-# Install dependencies
-pip install pygame
+# Create virtual environment (recommended)
+python3 -m venv venv
 
-# Or use requirements.txt
+# Activate virtual environment
+# On Linux/macOS:
+source venv/bin/activate
+# On Windows:
+# venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
 ## Usage
 
 ```bash
+# With virtual environment activated
 python pong.py
+
+# Or directly using venv python
+./venv/bin/python pong.py
 ```
 
 ### Controls

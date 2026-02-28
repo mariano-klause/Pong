@@ -84,7 +84,7 @@ class Paddle:
         self.y = min(SCREEN_HEIGHT - PADDLE_HEIGHT, self.y + self.speed)
     
     def ai_update(self, ball: Ball, ball_speed_multiplier: float) -> None:
-        """AI paddle update with realistic imperfections."""
+        """AI paddle update with prediction and competitive behavior."""
         if not self.is_ai:
             return
         
@@ -92,25 +92,47 @@ class Paddle:
         if ball.vx < 0:
             return
         
-        # Simulate reaction time
+        # Simulate minimal reaction time (reduced from 3 to 1)
         self.reaction_delay += 1
-        if self.reaction_delay < 3:  # Slight delay
+        if self.reaction_delay < 1:
             return
         self.reaction_delay = 0
         
-        # AI target with some inaccuracy
-        target_y = ball.y - PADDLE_HEIGHT // 2
-        error = random.gauss(0, 10)  # Small random error
+        # PREDICT where ball will be when it reaches AI paddle
+        if ball.vx > 0:
+            # Time for ball to reach AI side
+            distance_to_ai = self.x - ball.x
+            time_to_reach = distance_to_ai / ball.vx if ball.vx > 0 else 1
+            
+            # Predict Y position with bounce physics
+            predicted_y = ball.y + ball.vy * time_to_reach
+            
+            # Account for wall bounces
+            while predicted_y < 0 or predicted_y > SCREEN_HEIGHT:
+                if predicted_y < 0:
+                    predicted_y = -predicted_y
+                elif predicted_y > SCREEN_HEIGHT:
+                    predicted_y = 2 * SCREEN_HEIGHT - predicted_y
+            
+            target_y = predicted_y - PADDLE_HEIGHT // 2
+        else:
+            target_y = ball.y - PADDLE_HEIGHT // 2
+        
+        # Reduced inaccuracy (σ=5px vs σ=10px for better play)
+        error = random.gauss(0, 5)
         target_y += error
         
-        # Adjust speed based on ball speed
-        current_speed = self.speed * ball_speed_multiplier * random.uniform(0.9, 1.1)
+        # Clamp target to valid range
+        target_y = max(0, min(SCREEN_HEIGHT - PADDLE_HEIGHT, target_y))
+        
+        # Faster AI speed (base 8 vs base 6, shorter when needed)
+        ai_speed = self.speed * 1.4 * ball_speed_multiplier * random.uniform(0.95, 1.05)
         
         # Move toward target
-        if self.y < target_y - 5:
-            self.y = min(SCREEN_HEIGHT - PADDLE_HEIGHT, self.y + current_speed)
-        elif self.y > target_y + 5:
-            self.y = max(0, self.y - current_speed)
+        if self.y < target_y - 3:  # Tighter tolerance
+            self.y = min(SCREEN_HEIGHT - PADDLE_HEIGHT, self.y + ai_speed)
+        elif self.y > target_y + 3:
+            self.y = max(0, self.y - ai_speed)
 
 
 class Game:
@@ -118,6 +140,17 @@ class Game:
     
     def __init__(self):
         pygame.init()
+        
+        # Initialize sound with graceful fallback
+        self.sound_enabled = False
+        try:
+            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+            self.sound_enabled = True
+            self._init_sounds()
+        except pygame.error:
+            print("Warning: Audio not available. Game will run without sound.")
+            self.sound_enabled = False
+        
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         pygame.display.set_caption("Pong - Player vs Computer")
         self.clock = pygame.time.Clock()
@@ -126,6 +159,46 @@ class Game:
         self.font_small = pygame.font.Font(None, 36)
         
         self.reset_game()
+    
+    def _init_sounds(self) -> None:
+        """Generate synthetic sound effects."""
+        import numpy as np
+        
+        def generate_beep(frequency: float, duration: float, volume: float = 0.3) -> pygame.mixer.Sound:
+            """Generate a beep sound using numpy."""
+            sample_rate = 44100
+            num_samples = int(duration * sample_rate)
+            
+            # Generate sine wave
+            t = np.linspace(0, duration, num_samples, False)
+            wave = np.sin(2 * np.pi * frequency * t)
+            
+            # Apply envelope (attack and decay)
+            attack = int(sample_rate * 0.01)
+            decay = int(sample_rate * 0.05)
+            envelope = np.ones(num_samples)
+            envelope[:attack] = np.linspace(0, 1, attack)
+            envelope[-decay:] = np.linspace(1, 0, decay)
+            
+            wave = wave * envelope * volume
+            
+            # Convert to 16-bit PCM
+            audio = (wave * 32767).astype(np.int16)
+            audio = np.column_stack((audio, audio))  # Stereo
+            
+            return pygame.sndarray.make_sound(audio)
+        
+        # Create sounds
+        self.sounds = {
+            'paddle_hit': generate_beep(440, 0.1),      # A4 - mid tone
+            'score': generate_beep(880, 0.2),            # A5 - high tone
+            'win': generate_beep(1320, 0.5),            # E6 - victory
+        }
+    
+    def _play_sound(self, sound_name: str) -> None:
+        """Play a sound if audio is enabled."""
+        if self.sound_enabled and sound_name in self.sounds:
+            self.sounds[sound_name].play()
     
     def reset_game(self) -> None:
         """Initialize or reset game state."""
@@ -189,6 +262,9 @@ class Game:
         self.ball.vy *= 1.02
         self.ball_speed_multiplier += SPEED_INCREMENT / 10
         
+        # Play paddle hit sound
+        self._play_sound('paddle_hit')
+        
         # Push ball out of paddle to prevent sticking
         if paddle.is_ai:
             self.ball.x = paddle.x - BALL_SIZE//2 - 1
@@ -204,13 +280,18 @@ class Game:
             self.player_score += 1
             self.ball.reset(direction=1)
         
+        # Play score sound
+        self._play_sound('score')
+        
         # Check for winner
         if self.player_score >= WINNING_SCORE:
             self.game_over = True
             self.winner = "Player"
+            self._play_sound('win')
         elif self.ai_score >= WINNING_SCORE:
             self.game_over = True
             self.winner = "Computer"
+            self._play_sound('win')
     
     def draw(self) -> None:
         """Render the game frame."""
